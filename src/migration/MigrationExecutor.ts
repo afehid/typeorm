@@ -12,7 +12,7 @@ import {
     TypeORMError,
 } from "../error"
 import { InstanceChecker } from "../util/InstanceChecker"
-import { PlatformTools } from "../platform/PlatformTools"
+import { computeMigrationChecksum } from "./MigrationSource"
 
 /**
  * Executes migrations: runs pending and reverts previously executed migrations.
@@ -575,6 +575,12 @@ export class MigrationExecutor {
                             length: "40",
                             isNullable: true,
                         },
+                        ...this.getMigrationsExtraColumns().map((column) => ({
+                            name: column.name,
+                            type: column.type,
+                            length: column.length,
+                            isNullable: column.isNullable ?? true,
+                        })),
                     ],
                 }),
             )
@@ -716,26 +722,26 @@ export class MigrationExecutor {
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }) as any,
+                }),
             )
             values["name"] = new MssqlParameter(
                 migration.name,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
+                }),
             )
             values["executedAt"] = new MssqlParameter(
                 Date.now(),
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }) as any,
+                }),
             )
             values["checksum"] = new MssqlParameter(
                 this.computeMigrationChecksum(migration),
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
+                }),
             )
         } else {
             values["timestamp"] = migration.timestamp
@@ -743,6 +749,17 @@ export class MigrationExecutor {
             values["executedAt"] = Date.now()
             values["checksum"] = this.computeMigrationChecksum(migration)
         }
+
+        for (const column of this.getMigrationsExtraColumns()) {
+            const value =
+                migration.instance?.migrationMetadata?.[column.name] ?? null
+            if (this.dataSource.driver.options.type === "mssql") {
+                values[column.name] = new MssqlParameter(value, column.type)
+            } else {
+                values[column.name] = value
+            }
+        }
+
         if (this.dataSource.driver.options.type === "mongodb") {
             const mongoRunner = queryRunner as MongoQueryRunner
             await mongoRunner.databaseConnection
@@ -776,13 +793,13 @@ export class MigrationExecutor {
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }) as any,
+                }),
             )
             conditions["name"] = new MssqlParameter(
                 migration.name,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
+                }),
             )
         } else {
             conditions["timestamp"] = migration.timestamp
@@ -823,9 +840,7 @@ export class MigrationExecutor {
     }
 
     protected computeMigrationChecksum(migration: Migration): string {
-        const up = migration.instance?.up?.toString() ?? ""
-        const down = migration.instance?.down?.toString() ?? ""
-        return PlatformTools.sha1(`${migration.name}\0${up}\0${down}`)
+        return computeMigrationChecksum(migration.name, migration.instance)
     }
 
     protected verifyExecutedMigrationChecksums(
@@ -851,7 +866,11 @@ export class MigrationExecutor {
             const currentChecksum =
                 this.computeMigrationChecksum(sourceMigration)
             if (currentChecksum !== executedMigration.checksum) {
-                throw new MigrationChecksumMismatchError(executedMigration.name)
+                throw new MigrationChecksumMismatchError(
+                    executedMigration.name,
+                    executedMigration.checksum,
+                    currentChecksum,
+                )
             }
         }
     }
@@ -877,6 +896,24 @@ export class MigrationExecutor {
         })
     }
 
+    protected getMigrationsExtraColumns(): {
+        name: string
+        type: string
+        length?: string
+        isNullable?: boolean
+    }[] {
+        const reserved = new Set([
+            "id",
+            "timestamp",
+            "name",
+            "executedAt",
+            "checksum",
+        ])
+        return (this.dataSource.options.migrationsExtraColumns ?? []).filter(
+            (column) => column.name && !reserved.has(column.name),
+        )
+    }
+
     protected async ensureMigrationsTableColumns(
         queryRunner: QueryRunner,
     ): Promise<void> {
@@ -897,6 +934,25 @@ export class MigrationExecutor {
                 this.migrationsTable,
                 this.buildChecksumColumn(),
             )
+        }
+
+        for (const column of this.getMigrationsExtraColumns()) {
+            if (
+                !(await queryRunner.hasColumn(
+                    this.migrationsTable,
+                    column.name,
+                ))
+            ) {
+                await queryRunner.addColumn(
+                    this.migrationsTable,
+                    new TableColumn({
+                        name: column.name,
+                        type: column.type,
+                        length: column.length,
+                        isNullable: column.isNullable ?? true,
+                    }),
+                )
+            }
         }
 
         this.migrationsTableColumnsEnsured = true

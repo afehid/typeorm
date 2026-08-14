@@ -2,6 +2,8 @@ import type { MigrationInterface, QueryRunner } from "../../../../../src"
 import { Table } from "../../../../../src"
 
 export class CreatePost1730000000001 implements MigrationInterface {
+    migrationMetadata?: Record<string, any>
+
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.createTable(
             new Table({

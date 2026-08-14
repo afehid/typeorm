@@ -13,6 +13,7 @@ export default new DataSource({
     migrationsTableName: "migrations",
     migrationsTransactionMode: "all",
     migrationsChecksumCheck: false,
+    // migrationsExtraColumns: [{ name: "executedBy", type: "varchar", length: "255" }],
 
     // other options...
 })
@@ -73,10 +74,38 @@ Controls transaction mode when running migrations. Possible options are:
 
 ### `migrationsChecksumCheck`
 
-When enabled, TypeORM verifies that each already-executed migration still matches the checksum stored in the migrations table (computed from the migration name and its `up` / `down` source). If a stored checksum no longer matches, a `MigrationChecksumMismatchError` is thrown before further migrations run.
+When enabled, TypeORM verifies that each already-executed migration still matches the checksum stored in the migrations table. If a stored checksum no longer matches, a `MigrationChecksumMismatchError` is thrown before further migrations run.
+
+Checksums prefer the migration **source file contents** when migrations are loaded from directories. If a migration is registered as a class (no file path), the checksum falls back to a normalized `Function.toString()` of `up` / `down`.
+
+Important: keep the artifact form consistent. Running migrations from `.ts` in development and compiled `.js` in production produces different checksums. For checksum verification, load the same form everywhere (typically compiled `.js`).
 
 Default: `false` (checksums are still stored when migrations execute; verification is opt-in).
 
 ```ts
 migrationsChecksumCheck: true
+```
+
+### `migrationsExtraColumns`
+
+Declares additional nullable columns on the migrations table for custom metadata. Values are taken from `MigrationInterface.migrationMetadata` when a migration is recorded.
+
+Reserved column names (`id`, `timestamp`, `name`, `executedAt`, `checksum`) are ignored.
+
+```ts
+migrationsExtraColumns: [{ name: "executedBy", type: "varchar", length: "255" }]
+```
+
+```ts
+export class CreatePost1730000000001 implements MigrationInterface {
+    migrationMetadata = { executedBy: "ci" }
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        // ...
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        // ...
+    }
+}
 ```

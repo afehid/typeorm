@@ -1,5 +1,6 @@
 import { globSync } from "tinyglobby"
 import type { Logger } from "../logger/Logger"
+import { attachMigrationSourcePath } from "../migration/MigrationSource"
 import { PlatformTools } from "../platform/PlatformTools"
 import { importOrRequireFile } from "./ImportUtils"
 import { InstanceChecker } from "./InstanceChecker"
@@ -25,18 +26,28 @@ export async function importClassesFromDirectories(
      *
      * @param exported
      * @param allLoaded
+     * @param filePath
      */
-    function loadFileClasses(exported: any, allLoaded: Function[]) {
+    function loadFileClasses(
+        exported: any,
+        allLoaded: Function[],
+        filePath?: string,
+    ) {
         if (
             typeof exported === "function" ||
             InstanceChecker.isEntitySchema(exported)
         ) {
+            if (filePath && typeof exported === "function") {
+                attachMigrationSourcePath(exported, filePath)
+            }
             allLoaded.push(exported)
         } else if (Array.isArray(exported)) {
-            exported.forEach((value) => loadFileClasses(value, allLoaded))
+            exported.forEach((value) =>
+                loadFileClasses(value, allLoaded, filePath),
+            )
         } else if (ObjectUtils.isObject(exported)) {
             Object.values(exported).forEach((value) =>
-                loadFileClasses(value, allLoaded),
+                loadFileClasses(value, allLoaded, filePath),
             )
         }
         return allLoaded
@@ -63,13 +74,15 @@ export async function importClassesFromDirectories(
             )
         })
         .map(async (file) => {
-            const [importOrRequireResult] = await importOrRequireFile(
-                PlatformTools.pathResolve(file),
-            )
-            return importOrRequireResult
+            const filePath = PlatformTools.pathResolve(file)
+            const [importOrRequireResult] = await importOrRequireFile(filePath)
+            return { filePath, exported: importOrRequireResult }
         })
 
     const dirs = await Promise.all(dirPromises)
-
-    return loadFileClasses(dirs, [])
+    const allLoaded: Function[] = []
+    for (const dir of dirs) {
+        loadFileClasses(dir.exported, allLoaded, dir.filePath)
+    }
+    return allLoaded
 }

@@ -62,8 +62,25 @@ export interface BaseDataSourceOptions {
      * no longer matches the checksum stored in the migrations table.
      * Rows with a NULL checksum (created before this feature) are skipped.
      * Defaults to false so existing projects are not broken.
+     *
+     * Prefer hashing migration source files when migrations are loaded from
+     * directories. Checksums are only comparable when you always run the same
+     * artifact form (e.g. always compiled `.js`, not `.ts` in one environment
+     * and `.js` in another).
      */
     readonly migrationsChecksumCheck?: boolean
+
+    /**
+     * Extra nullable columns created on the migrations table for custom metadata.
+     * Provide values per migration via `MigrationInterface.migrationMetadata`.
+     * Reserved names (`id`, `timestamp`, `name`, `executedAt`, `checksum`) are ignored.
+     */
+    readonly migrationsExtraColumns?: {
+        name: string
+        type: string
+        length?: string
+        isNullable?: boolean
+    }[]
 
     /**
      * Typeorm metadata table name, in case of different name from "typeorm_metadata".

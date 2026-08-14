@@ -5,6 +5,10 @@ import type { DataSource } from "../../../../src"
 import { Migration, MigrationExecutor, Table } from "../../../../src"
 import { MigrationChecksumMismatchError } from "../../../../src/error/MigrationChecksumMismatchError"
 import {
+    computeMigrationChecksum,
+    getMigrationSourcePath,
+} from "../../../../src/migration/MigrationSource"
+import {
     closeTestingConnections,
     createTestingConnections,
     reloadTestingDatabases,
@@ -16,10 +20,19 @@ describe("migrations > checksum and executedAt metadata", () => {
 
     before(async () => {
         dataSources = await createTestingConnections({
-            disabledDrivers: ["mongodb", "spanner"],
+            enabledDrivers: ["better-sqlite3"],
             dropSchema: true,
             schemaCreate: false,
             migrations: [__dirname + "/migration/*{.ts,.js}"],
+            driverSpecific: {
+                migrationsExtraColumns: [
+                    {
+                        name: "executedBy",
+                        type: "varchar",
+                        length: "255",
+                    },
+                ],
+            },
         })
     })
     beforeEach(() => reloadTestingDatabases(dataSources))
@@ -98,6 +111,44 @@ describe("migrations > checksum and executedAt metadata", () => {
             }),
         ))
 
+    it("hashes migration source files when loaded from directories", () =>
+        Promise.all(
+            dataSources.map(async (dataSource) => {
+                const migration = dataSource.migrations[0]
+                expect(getMigrationSourcePath(migration)).to.be.a("string")
+
+                await dataSource.runMigrations({ transaction: "none" })
+
+                const rows: Array<Record<string, any>> = await dataSource.query(
+                    `SELECT * FROM ${dataSource.driver.escape("migrations")}`,
+                )
+                const stored = rows[0].checksum ?? rows[0].CHECKSUM
+                const expected = computeMigrationChecksum(
+                    migration.name ?? migration.constructor.name,
+                    migration,
+                )
+                expect(stored).to.equal(expected)
+            }),
+        ))
+
+    it("persists custom migrationsExtraColumns metadata", () =>
+        Promise.all(
+            dataSources.map(async (dataSource) => {
+                const migration = dataSource
+                    .migrations[0] as CreatePost1730000000001
+                migration.migrationMetadata = { executedBy: "ci-bot" }
+
+                await dataSource.runMigrations({ transaction: "none" })
+
+                const rows: Array<Record<string, any>> = await dataSource.query(
+                    `SELECT * FROM ${dataSource.driver.escape("migrations")}`,
+                )
+                expect(rows[0].executedBy ?? rows[0].executedby).to.equal(
+                    "ci-bot",
+                )
+            }),
+        ))
+
     it("adds missing columns on an existing migrations table", () =>
         Promise.all(
             dataSources.map(async (dataSource) => {
@@ -113,6 +164,9 @@ describe("migrations > checksum and executedAt metadata", () => {
                     undefined,
                 )
                 expect(table?.findColumnByName("checksum")).to.not.equal(
+                    undefined,
+                )
+                expect(table?.findColumnByName("executedBy")).to.not.equal(
                     undefined,
                 )
             }),
@@ -176,13 +230,26 @@ describe("migrations > checksum and executedAt metadata", () => {
                     )} = '${fakeChecksum}'`,
                 )
 
-                ;(
-                    dataSource.options as { migrationsChecksumCheck?: boolean }
-                ).migrationsChecksumCheck = true
+                const options = dataSource.options as {
+                    migrationsChecksumCheck?: boolean
+                }
+                options.migrationsChecksumCheck = true
 
-                await expect(
-                    dataSource.runMigrations({ transaction: "none" }),
-                ).to.be.rejectedWith(MigrationChecksumMismatchError)
+                try {
+                    await dataSource.runMigrations({ transaction: "none" })
+                    expect.fail("expected MigrationChecksumMismatchError")
+                } catch (error) {
+                    expect(error).to.be.instanceOf(
+                        MigrationChecksumMismatchError,
+                    )
+                    const mismatch = error as MigrationChecksumMismatchError
+                    expect(mismatch.storedChecksum).to.equal(fakeChecksum)
+                    expect(mismatch.currentChecksum).to.match(/^[a-f0-9]{40}$/)
+                    expect(mismatch.message).to.include(fakeChecksum)
+                    expect(mismatch.message).to.include(
+                        mismatch.currentChecksum,
+                    )
+                }
             }),
         ))
 })
