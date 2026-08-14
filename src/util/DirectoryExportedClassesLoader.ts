@@ -22,14 +22,17 @@ export async function importClassesFromDirectories(
         directories,
         formats,
     )
-    return pairs.map((p) => p.fn)
+    return pairs.map((p) => p.cls)
 }
 
 /**
  * Like {@link importClassesFromDirectories} but also returns the resolved file
- * path each class was loaded from.  Used by the migration loader to attach
- * stable file-path metadata for checksum computation without mutating classes
- * loaded for other purposes (entities, subscribers).
+ * path each *function* class was loaded from.  EntitySchema entries are included
+ * with `filePath: undefined` so entity discovery is not broken.
+ *
+ * Used by the migration loader to attach stable file-path metadata for checksum
+ * computation without mutating classes loaded for other purposes (entities,
+ * subscribers).
  *
  * @param logger
  * @param directories
@@ -39,7 +42,7 @@ export async function importClassesFromDirectoriesWithPaths(
     logger: Logger,
     directories: string[],
     formats = [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"],
-): Promise<{ fn: Function; filePath: string }[]> {
+): Promise<{ cls: Function; filePath: string | undefined }[]> {
     const logLevel = "info"
     const classesNotFoundMessage =
         "No classes were found using the provided glob pattern: "
@@ -53,16 +56,18 @@ export async function importClassesFromDirectoriesWithPaths(
      */
     function loadFileClasses(
         exported: any,
-        allLoaded: { fn: Function; filePath: string }[],
+        allLoaded: { cls: Function; filePath: string | undefined }[],
         filePath: string,
     ) {
-        if (
-            typeof exported === "function" ||
-            InstanceChecker.isEntitySchema(exported)
-        ) {
-            if (typeof exported === "function") {
-                allLoaded.push({ fn: exported, filePath })
-            }
+        if (typeof exported === "function") {
+            allLoaded.push({ cls: exported, filePath })
+        } else if (InstanceChecker.isEntitySchema(exported)) {
+            // EntitySchema objects are not Functions but are cast as such by
+            // downstream consumers.  Preserve them without a file path.
+            allLoaded.push({
+                cls: exported as unknown as Function,
+                filePath: undefined,
+            })
         } else if (Array.isArray(exported)) {
             exported.forEach((value) =>
                 loadFileClasses(value, allLoaded, filePath),
@@ -103,7 +108,7 @@ export async function importClassesFromDirectoriesWithPaths(
         })
 
     const dirs = await Promise.all(dirPromises)
-    const allLoaded: { fn: Function; filePath: string }[] = []
+    const allLoaded: { cls: Function; filePath: string | undefined }[] = []
     for (const dir of dirs) {
         loadFileClasses(dir.exported, allLoaded, dir.filePath)
     }

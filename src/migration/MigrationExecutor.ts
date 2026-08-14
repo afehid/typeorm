@@ -741,8 +741,11 @@ export class MigrationExecutor {
                         .migrationTimestamp,
                 }),
             )
+            const checksum = migration.instance
+                ? this.computeMigrationChecksum(migration)
+                : null
             values["checksum"] = new MssqlParameter(
-                this.computeMigrationChecksum(migration),
+                checksum,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
                 }),
@@ -751,7 +754,9 @@ export class MigrationExecutor {
             values["timestamp"] = migration.timestamp
             values["name"] = migration.name
             values["executedAt"] = Date.now()
-            values["checksum"] = this.computeMigrationChecksum(migration)
+            values["checksum"] = migration.instance
+                ? this.computeMigrationChecksum(migration)
+                : null
         }
 
         for (const column of this.getMigrationsExtraColumns()) {

@@ -46,17 +46,20 @@ export class ConnectionMetadataBuilder {
         // computation can hash stable file contents.  Other class types (entities,
         // subscribers) are loaded via the plain importClassesFromDirectories
         // helper and are never mutated here.
-        for (const { fn, filePath } of fromDirectories) {
-            try {
-                attachMigrationSourcePath(fn, filePath)
-            } catch {
-                // Frozen/sealed exports are silently skipped; checksum falls
-                // back to Function.toString() for those classes.
+        for (const { cls, filePath } of fromDirectories) {
+            if (filePath) {
+                try {
+                    attachMigrationSourcePath(cls, filePath)
+                } catch (e) {
+                    if (!(e instanceof TypeError)) throw e
+                    // Non-extensible/sealed exports: silently skip; checksum
+                    // falls back to Function.toString() for those classes.
+                }
             }
         }
         const allMigrationClasses = [
             ...migrationClasses,
-            ...fromDirectories.map((p) => p.fn),
+            ...fromDirectories.map((p) => p.cls),
         ]
         return allMigrationClasses.map(
             (migrationClass) =>
