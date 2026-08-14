@@ -707,6 +707,8 @@ export class MigrationExecutor {
         queryRunner: QueryRunner,
         migration: Migration,
     ): Promise<void> {
+        await this.createMigrationsTableIfNotExist(queryRunner)
+
         const values: ObjectLiteral = {}
         if (this.dataSource.driver.options.type === "mssql") {
             values["timestamp"] = new MssqlParameter(
