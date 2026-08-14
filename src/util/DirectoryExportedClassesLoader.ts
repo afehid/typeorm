@@ -1,6 +1,5 @@
 import { globSync } from "tinyglobby"
 import type { Logger } from "../logger/Logger"
-import { attachMigrationSourcePath } from "../migration/MigrationSource"
 import { PlatformTools } from "../platform/PlatformTools"
 import { importOrRequireFile } from "./ImportUtils"
 import { InstanceChecker } from "./InstanceChecker"
@@ -18,10 +17,34 @@ export async function importClassesFromDirectories(
     directories: string[],
     formats = [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"],
 ): Promise<Function[]> {
+    const pairs = await importClassesFromDirectoriesWithPaths(
+        logger,
+        directories,
+        formats,
+    )
+    return pairs.map((p) => p.fn)
+}
+
+/**
+ * Like {@link importClassesFromDirectories} but also returns the resolved file
+ * path each class was loaded from.  Used by the migration loader to attach
+ * stable file-path metadata for checksum computation without mutating classes
+ * loaded for other purposes (entities, subscribers).
+ *
+ * @param logger
+ * @param directories
+ * @param formats
+ */
+export async function importClassesFromDirectoriesWithPaths(
+    logger: Logger,
+    directories: string[],
+    formats = [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"],
+): Promise<{ fn: Function; filePath: string }[]> {
     const logLevel = "info"
     const classesNotFoundMessage =
         "No classes were found using the provided glob pattern: "
     const classesFoundMessage = "All classes found using provided glob pattern"
+
     /**
      *
      * @param exported
@@ -30,17 +53,16 @@ export async function importClassesFromDirectories(
      */
     function loadFileClasses(
         exported: any,
-        allLoaded: Function[],
-        filePath?: string,
+        allLoaded: { fn: Function; filePath: string }[],
+        filePath: string,
     ) {
         if (
             typeof exported === "function" ||
             InstanceChecker.isEntitySchema(exported)
         ) {
-            if (filePath && typeof exported === "function") {
-                attachMigrationSourcePath(exported, filePath)
+            if (typeof exported === "function") {
+                allLoaded.push({ fn: exported, filePath })
             }
-            allLoaded.push(exported)
         } else if (Array.isArray(exported)) {
             exported.forEach((value) =>
                 loadFileClasses(value, allLoaded, filePath),
@@ -65,6 +87,7 @@ export async function importClassesFromDirectories(
             `${classesFoundMessage} "${directories}" : "${allFiles}"`,
         )
     }
+
     const dirPromises = allFiles
         .filter((file) => {
             const dtsExtension = file.slice(-5)
@@ -80,7 +103,7 @@ export async function importClassesFromDirectories(
         })
 
     const dirs = await Promise.all(dirPromises)
-    const allLoaded: Function[] = []
+    const allLoaded: { fn: Function; filePath: string }[] = []
     for (const dir of dirs) {
         loadFileClasses(dir.exported, allLoaded, dir.filePath)
     }

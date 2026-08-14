@@ -7,6 +7,12 @@ import { PlatformTools } from "../platform/PlatformTools"
 export const MIGRATION_SOURCE_PATH = Symbol.for("TypeORM#migrationSourcePath")
 
 /**
+ * Module-level cache so each file is read from disk at most once per process.
+ * Key: absolute file path. Value: SHA-1 input string (name + normalized content).
+ */
+const fileChecksumCache = new Map<string, string>()
+
+/**
  * Records the absolute path of the file a migration class was loaded from.
  *
  * @param migrationClass
@@ -40,6 +46,8 @@ export function getMigrationSourcePath(
  * Builds a SHA-1 checksum for a migration.
  *
  * Prefers hashing the migration source file (stable for a given artifact).
+ * File contents are cached in memory so repeated calls (e.g. verifying many
+ * executed migrations) only pay the I/O cost once.
  * Falls back to normalized Function.toString() when no file path is available
  * (e.g. migrations registered as classes).
  *
@@ -63,18 +71,32 @@ export function computeMigrationChecksum(
     const sourcePath = instance ? getMigrationSourcePath(instance) : undefined
 
     if (sourcePath && PlatformTools.fileExist(sourcePath)) {
-        const content = Buffer.from(
-            PlatformTools.readFileSync(sourcePath),
-        ).toString("utf8")
-        const normalized = content
-            .replace(/^\uFEFF/, "")
-            .replaceAll("\r\n", "\n")
-        return PlatformTools.sha1(`${name}\0file\0${normalized}`)
+        const cacheKey = sourcePath
+        let cached = fileChecksumCache.get(cacheKey)
+        if (cached === undefined) {
+            const content = Buffer.from(
+                PlatformTools.readFileSync(sourcePath),
+            ).toString("utf8")
+            const normalized = content
+                .replace(/^\uFEFF/, "")
+                .replaceAll("\r\n", "\n")
+            cached = normalized
+            fileChecksumCache.set(cacheKey, cached)
+        }
+        return PlatformTools.sha1(`${name}\0file\0${cached}`)
     }
 
     const up = normalizeFunctionSource(instance?.up?.toString() ?? "")
     const down = normalizeFunctionSource(instance?.down?.toString() ?? "")
     return PlatformTools.sha1(`${name}\0fn\0${up}\0${down}`)
+}
+
+/**
+ * Clears the file-content cache.  Primarily useful in tests that modify
+ * migration files on disk between runs.
+ */
+export function clearMigrationChecksumCache(): void {
+    fileChecksumCache.clear()
 }
 
 /**

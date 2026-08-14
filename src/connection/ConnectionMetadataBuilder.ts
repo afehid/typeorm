@@ -1,4 +1,7 @@
-import { importClassesFromDirectories } from "../util/DirectoryExportedClassesLoader"
+import {
+    importClassesFromDirectories,
+    importClassesFromDirectoriesWithPaths,
+} from "../util/DirectoryExportedClassesLoader"
 import { OrmUtils } from "../util/OrmUtils"
 import type { MigrationInterface } from "../migration/MigrationInterface"
 import { getMetadataArgsStorage } from "../globals"
@@ -9,6 +12,7 @@ import type { EntitySchema } from "../entity-schema/EntitySchema"
 import type { EntityMetadata } from "../metadata/EntityMetadata"
 import type { EntitySubscriberInterface } from "../subscriber/EntitySubscriberInterface"
 import { InstanceChecker } from "../util/InstanceChecker"
+import { attachMigrationSourcePath } from "../migration/MigrationSource"
 
 /**
  * Builds migration instances, subscriber instances and entity metadatas for the given classes.
@@ -34,12 +38,25 @@ export class ConnectionMetadataBuilder {
     ): Promise<MigrationInterface[]> {
         const [migrationClasses, migrationDirectories] =
             OrmUtils.splitClassesAndStrings(migrations)
+        const fromDirectories = await importClassesFromDirectoriesWithPaths(
+            this.dataSource.logger,
+            migrationDirectories,
+        )
+        // Attach the source file path only to migration classes so checksum
+        // computation can hash stable file contents.  Other class types (entities,
+        // subscribers) are loaded via the plain importClassesFromDirectories
+        // helper and are never mutated here.
+        for (const { fn, filePath } of fromDirectories) {
+            try {
+                attachMigrationSourcePath(fn, filePath)
+            } catch {
+                // Frozen/sealed exports are silently skipped; checksum falls
+                // back to Function.toString() for those classes.
+            }
+        }
         const allMigrationClasses = [
             ...migrationClasses,
-            ...(await importClassesFromDirectories(
-                this.dataSource.logger,
-                migrationDirectories,
-            )),
+            ...fromDirectories.map((p) => p.fn),
         ]
         return allMigrationClasses.map(
             (migrationClass) =>
