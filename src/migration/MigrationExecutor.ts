@@ -1,12 +1,18 @@
 import { Table } from "../schema-builder/table/Table"
+import { TableColumn } from "../schema-builder/table/TableColumn"
 import type { DataSource } from "../data-source/DataSource"
 import { Migration } from "./Migration"
 import type { ObjectLiteral } from "../common/ObjectLiteral"
 import type { QueryRunner } from "../query-runner/QueryRunner"
 import { MssqlParameter } from "../driver/sqlserver/MssqlParameter"
 import type { MongoQueryRunner } from "../driver/mongodb/MongoQueryRunner"
-import { ForbiddenTransactionModeOverrideError, TypeORMError } from "../error"
+import {
+    ForbiddenTransactionModeOverrideError,
+    MigrationChecksumMismatchError,
+    TypeORMError,
+} from "../error"
 import { InstanceChecker } from "../util/InstanceChecker"
+import { PlatformTools } from "../platform/PlatformTools"
 
 /**
  * Executes migrations: runs pending and reverts previously executed migrations.
@@ -216,6 +222,13 @@ export class MigrationExecutor {
 
         // get all user's migrations in the source code
         const allMigrations = this.getMigrations()
+
+        if (this.dataSource.options.migrationsChecksumCheck) {
+            this.verifyExecutedMigrationChecksums(
+                executedMigrations,
+                allMigrations,
+            )
+        }
 
         // variable to store all migrations we did successfully
         const successMigrations: Migration[] = []
@@ -544,9 +557,28 @@ export class MigrationExecutor {
                             }),
                             isNullable: false,
                         },
+                        {
+                            name: "executedAt",
+                            type: this.dataSource.driver.normalizeType({
+                                type: this.dataSource.driver.mappedDataTypes
+                                    .migrationTimestamp,
+                            }),
+                            isNullable: true,
+                        },
+                        {
+                            name: "checksum",
+                            type: this.dataSource.driver.normalizeType({
+                                type: this.dataSource.driver.mappedDataTypes
+                                    .migrationName,
+                            }),
+                            length: "40",
+                            isNullable: true,
+                        },
                     ],
                 }),
             )
+        } else {
+            await this.ensureMigrationsTableColumns(queryRunner)
         }
     }
 
@@ -572,10 +604,20 @@ export class MigrationExecutor {
                 .from(this.migrationsTable, this.migrationsTableName)
                 .getRawMany()
             return migrationsRaw.map((migrationRaw) => {
+                const executedAtRaw =
+                    migrationRaw["executedAt"] ?? migrationRaw["executedat"]
+                const checksumRaw =
+                    migrationRaw["checksum"] ?? migrationRaw["CHECKSUM"]
                 return new Migration(
                     parseInt(migrationRaw["id"]),
                     parseInt(migrationRaw["timestamp"]),
                     migrationRaw["name"],
+                    undefined,
+                    undefined,
+                    executedAtRaw != null && executedAtRaw !== ""
+                        ? parseInt(executedAtRaw)
+                        : undefined,
+                    checksumRaw ?? undefined,
                 )
             })
         }
@@ -678,9 +720,24 @@ export class MigrationExecutor {
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
                 }) as any,
             )
+            values["executedAt"] = new MssqlParameter(
+                Date.now(),
+                this.dataSource.driver.normalizeType({
+                    type: this.dataSource.driver.mappedDataTypes
+                        .migrationTimestamp,
+                }) as any,
+            )
+            values["checksum"] = new MssqlParameter(
+                this.computeMigrationChecksum(migration),
+                this.dataSource.driver.normalizeType({
+                    type: this.dataSource.driver.mappedDataTypes.migrationName,
+                }) as any,
+            )
         } else {
             values["timestamp"] = migration.timestamp
             values["name"] = migration.name
+            values["executedAt"] = Date.now()
+            values["checksum"] = this.computeMigrationChecksum(migration)
         }
         if (this.dataSource.driver.options.type === "mongodb") {
             const mongoRunner = queryRunner as MongoQueryRunner
@@ -758,6 +815,73 @@ export class MigrationExecutor {
             if (!this.queryRunner) {
                 await queryRunner.release()
             }
+        }
+    }
+
+    protected computeMigrationChecksum(migration: Migration): string {
+        const up = migration.instance?.up?.toString() ?? ""
+        const down = migration.instance?.down?.toString() ?? ""
+        return PlatformTools.sha1(`${migration.name}\0${up}\0${down}`)
+    }
+
+    protected verifyExecutedMigrationChecksums(
+        executedMigrations: Migration[],
+        sourceMigrations: Migration[],
+    ) {
+        for (const executedMigration of executedMigrations) {
+            if (!executedMigration.checksum) {
+                continue
+            }
+
+            const sourceMigration = sourceMigrations.find(
+                (migration) => migration.name === executedMigration.name,
+            )
+            if (!sourceMigration) {
+                continue
+            }
+
+            const currentChecksum =
+                this.computeMigrationChecksum(sourceMigration)
+            if (currentChecksum !== executedMigration.checksum) {
+                throw new MigrationChecksumMismatchError(executedMigration.name)
+            }
+        }
+    }
+
+    protected buildExecutedAtColumn(): TableColumn {
+        return new TableColumn({
+            name: "executedAt",
+            type: this.dataSource.driver.normalizeType({
+                type: this.dataSource.driver.mappedDataTypes.migrationTimestamp,
+            }),
+            isNullable: true,
+        })
+    }
+
+    protected buildChecksumColumn(): TableColumn {
+        return new TableColumn({
+            name: "checksum",
+            type: this.dataSource.driver.normalizeType({
+                type: this.dataSource.driver.mappedDataTypes.migrationName,
+            }),
+            length: "40",
+            isNullable: true,
+        })
+    }
+
+    protected async ensureMigrationsTableColumns(
+        queryRunner: QueryRunner,
+    ): Promise<void> {
+        const table = await queryRunner.getTable(this.migrationsTable)
+        if (!table) {
+            return
+        }
+
+        if (!table.findColumnByName("executedAt")) {
+            await queryRunner.addColumn(table, this.buildExecutedAtColumn())
+        }
+        if (!table.findColumnByName("checksum")) {
+            await queryRunner.addColumn(table, this.buildChecksumColumn())
         }
     }
 }

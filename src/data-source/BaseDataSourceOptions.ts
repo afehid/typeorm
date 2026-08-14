@@ -58,6 +58,14 @@ export interface BaseDataSourceOptions {
     readonly migrationsTransactionMode?: "all" | "none" | "each"
 
     /**
+     * When true, abort `migration:run` if an already-executed migration's source
+     * no longer matches the checksum stored in the migrations table.
+     * Rows with a NULL checksum (created before this feature) are skipped.
+     * Defaults to false so existing projects are not broken.
+     */
+    readonly migrationsChecksumCheck?: boolean
+
+    /**
      * Typeorm metadata table name, in case of different name from "typeorm_metadata".
      * Accepts single string name.
      */

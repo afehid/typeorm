@@ -34,6 +34,18 @@ export class Migration {
      */
     transaction?: boolean
 
+    /**
+     * Time the migration row was inserted into the migrations table.
+     * Milliseconds since epoch. Undefined for rows created before this column existed.
+     */
+    executedAt?: number
+
+    /**
+     * SHA-1 checksum of the loaded migration source (name + up + down).
+     * Undefined for rows created before this column existed.
+     */
+    checksum?: string
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -44,11 +56,15 @@ export class Migration {
         name: string,
         instance?: MigrationInterface,
         transaction?: boolean,
+        executedAt?: number,
+        checksum?: string,
     ) {
         this.id = id
         this.timestamp = timestamp
         this.name = name
         this.instance = instance
         this.transaction = transaction
+        this.executedAt = executedAt
+        this.checksum = checksum
     }
 }
