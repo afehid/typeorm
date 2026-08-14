@@ -612,10 +612,14 @@ export class MigrationExecutor {
                 .from(this.migrationsTable, this.migrationsTableName)
                 .getRawMany()
             return migrationsRaw.map((migrationRaw) => {
-                const executedAtRaw =
-                    migrationRaw["executedAt"] ?? migrationRaw["executedat"]
-                const checksumRaw =
-                    migrationRaw["checksum"] ?? migrationRaw["CHECKSUM"]
+                const executedAtRaw = this.getRawMigrationValue(
+                    migrationRaw,
+                    "executedAt",
+                )
+                const checksumRaw = this.getRawMigrationValue(
+                    migrationRaw,
+                    "checksum",
+                )
                 return new Migration(
                     parseInt(migrationRaw["id"]),
                     parseInt(migrationRaw["timestamp"]),
@@ -623,9 +627,9 @@ export class MigrationExecutor {
                     undefined,
                     undefined,
                     executedAtRaw != null && executedAtRaw !== ""
-                        ? parseInt(executedAtRaw)
+                        ? parseInt(String(executedAtRaw))
                         : undefined,
-                    checksumRaw ?? undefined,
+                    checksumRaw != null ? String(checksumRaw) : undefined,
                 )
             })
         }
@@ -754,7 +758,14 @@ export class MigrationExecutor {
             const value =
                 migration.instance?.migrationMetadata?.[column.name] ?? null
             if (this.dataSource.driver.options.type === "mssql") {
-                values[column.name] = new MssqlParameter(value, column.type)
+                const length =
+                    column.length != null && column.length !== ""
+                        ? parseInt(column.length, 10)
+                        : undefined
+                values[column.name] =
+                    length != null && !Number.isNaN(length)
+                        ? new MssqlParameter(value, column.type, length)
+                        : new MssqlParameter(value, column.type)
             } else {
                 values[column.name] = value
             }
@@ -896,6 +907,24 @@ export class MigrationExecutor {
         })
     }
 
+    protected getRawMigrationValue(
+        migrationRaw: ObjectLiteral,
+        columnName: string,
+    ): unknown {
+        if (Object.prototype.hasOwnProperty.call(migrationRaw, columnName)) {
+            return migrationRaw[columnName]
+        }
+
+        const lowerName = columnName.toLowerCase()
+        for (const key of Object.keys(migrationRaw)) {
+            if (key.toLowerCase() === lowerName) {
+                return migrationRaw[key]
+            }
+        }
+
+        return undefined
+    }
+
     protected getMigrationsExtraColumns(): {
         name: string
         type: string
@@ -906,11 +935,12 @@ export class MigrationExecutor {
             "id",
             "timestamp",
             "name",
-            "executedAt",
+            "executedat",
             "checksum",
         ])
         return (this.dataSource.options.migrationsExtraColumns ?? []).filter(
-            (column) => column.name && !reserved.has(column.name),
+            (column) =>
+                !!column.name && !reserved.has(column.name.toLowerCase()),
         )
     }
 

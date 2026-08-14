@@ -31,6 +31,12 @@ describe("migrations > checksum and executedAt metadata", () => {
                         type: "varchar",
                         length: "255",
                     },
+                    // Case variant of a reserved column — must be ignored.
+                    {
+                        name: "Checksum",
+                        type: "varchar",
+                        length: "40",
+                    },
                 ],
             },
         })
@@ -169,6 +175,12 @@ describe("migrations > checksum and executedAt metadata", () => {
                 expect(table?.findColumnByName("executedBy")).to.not.equal(
                     undefined,
                 )
+                // Reserved name variants must not create a second checksum column.
+                expect(
+                    table?.columns.filter(
+                        (column) => column.name.toLowerCase() === "checksum",
+                    ),
+                ).to.have.lengthOf(1)
             }),
         ))
 
