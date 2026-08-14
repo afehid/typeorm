@@ -76,9 +76,11 @@ Controls transaction mode when running migrations. Possible options are:
 
 When enabled, TypeORM verifies that each already-executed migration still matches the checksum stored in the migrations table. If a stored checksum no longer matches, a `MigrationChecksumMismatchError` is thrown before further migrations run.
 
-Checksums prefer the migration **source file contents** when migrations are loaded from directories. If a migration is registered as a class (no file path), the checksum falls back to a normalized `Function.toString()` of `up` / `down`.
+Each checksum is computed from that migration's name and a normalized `Function.toString()` of its `up` / `down` methods (not the whole file), so edits to other classes in the same file do not affect it.
 
 Important: keep the artifact form consistent. Running migrations from `.ts` in development and compiled `.js` in production produces different checksums. For checksum verification, load the same form everywhere (typically compiled `.js`).
+
+If the migrations table already has `executedAt` / `checksum` columns with incompatible types, TypeORM does not alter them — only missing columns are added.
 
 Default: `false` (checksums are still stored when migrations execute; verification is opt-in).
 

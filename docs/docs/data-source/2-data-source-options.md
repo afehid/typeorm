@@ -69,7 +69,7 @@ Different RDBMS-es have their own specific options.
 
 - `migrationsTransactionMode` - Controls transaction mode when running [migrations](../migrations/01-why.md).
 
-- `migrationsChecksumCheck` - When `true`, compares each executed migration's stored checksum against the current migration source before running migrations. Throws if a stored checksum no longer matches. Prefer loading migrations from the same artifact form (e.g. always compiled `.js`). Default: `false`.
+- `migrationsChecksumCheck` - When `true`, compares each executed migration's stored checksum against the current migration source before running migrations. Throws if a stored checksum no longer matches. Checksums use each migration's `up`/`down` methods; keep the same artifact form (e.g. always compiled `.js`). Default: `false`.
 
 - `migrationsExtraColumns` - Extra nullable columns to create on the migrations table for custom metadata. Provide values via `MigrationInterface.migrationMetadata`.
 

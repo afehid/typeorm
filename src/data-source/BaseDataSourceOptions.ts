@@ -63,10 +63,10 @@ export interface BaseDataSourceOptions {
      * Rows with a NULL checksum (created before this feature) are skipped.
      * Defaults to false so existing projects are not broken.
      *
-     * Prefer hashing migration source files when migrations are loaded from
-     * directories. Checksums are only comparable when you always run the same
-     * artifact form (e.g. always compiled `.js`, not `.ts` in one environment
-     * and `.js` in another).
+     * Checksums are derived from each migration's name and its `up` / `down`
+     * methods. They are only comparable when you always run the same artifact
+     * form (e.g. always compiled `.js`, not `.ts` in one environment and `.js`
+     * in another).
      */
     readonly migrationsChecksumCheck?: boolean
 

@@ -4,10 +4,7 @@ import "reflect-metadata"
 import type { DataSource } from "../../../../src"
 import { Migration, MigrationExecutor, Table } from "../../../../src"
 import { MigrationChecksumMismatchError } from "../../../../src/error/MigrationChecksumMismatchError"
-import {
-    computeMigrationChecksum,
-    getMigrationSourcePath,
-} from "../../../../src/migration/MigrationSource"
+import { computeMigrationChecksum } from "../../../../src/migration/MigrationSource"
 import {
     closeTestingConnections,
     createTestingConnections,
@@ -117,11 +114,10 @@ describe("migrations > checksum and executedAt metadata", () => {
             }),
         ))
 
-    it("hashes migration source files when loaded from directories", () =>
+    it("stores a checksum derived from the migration up/down methods", () =>
         Promise.all(
             dataSources.map(async (dataSource) => {
                 const migration = dataSource.migrations[0]
-                expect(getMigrationSourcePath(migration)).to.be.a("string")
 
                 await dataSource.runMigrations({ transaction: "none" })
 
