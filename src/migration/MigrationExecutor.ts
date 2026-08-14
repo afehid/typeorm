@@ -47,6 +47,7 @@ export class MigrationExecutor {
     private readonly migrationsSchema?: string
     private readonly migrationsTable: string
     private readonly migrationsTableName: string
+    private migrationsTableColumnsEnsured = false
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -577,6 +578,7 @@ export class MigrationExecutor {
                     ],
                 }),
             )
+            this.migrationsTableColumnsEnsured = true
         } else {
             await this.ensureMigrationsTableColumns(queryRunner)
         }
@@ -828,13 +830,17 @@ export class MigrationExecutor {
         executedMigrations: Migration[],
         sourceMigrations: Migration[],
     ) {
+        const sourceMigrationsByName = new Map(
+            sourceMigrations.map((migration) => [migration.name, migration]),
+        )
+
         for (const executedMigration of executedMigrations) {
             if (!executedMigration.checksum) {
                 continue
             }
 
-            const sourceMigration = sourceMigrations.find(
-                (migration) => migration.name === executedMigration.name,
+            const sourceMigration = sourceMigrationsByName.get(
+                executedMigration.name,
             )
             if (!sourceMigration) {
                 continue
@@ -872,16 +878,25 @@ export class MigrationExecutor {
     protected async ensureMigrationsTableColumns(
         queryRunner: QueryRunner,
     ): Promise<void> {
-        const table = await queryRunner.getTable(this.migrationsTable)
-        if (!table) {
+        if (this.migrationsTableColumnsEnsured) {
             return
         }
 
-        if (!table.findColumnByName("executedAt")) {
-            await queryRunner.addColumn(table, this.buildExecutedAtColumn())
+        if (
+            !(await queryRunner.hasColumn(this.migrationsTable, "executedAt"))
+        ) {
+            await queryRunner.addColumn(
+                this.migrationsTable,
+                this.buildExecutedAtColumn(),
+            )
         }
-        if (!table.findColumnByName("checksum")) {
-            await queryRunner.addColumn(table, this.buildChecksumColumn())
+        if (!(await queryRunner.hasColumn(this.migrationsTable, "checksum"))) {
+            await queryRunner.addColumn(
+                this.migrationsTable,
+                this.buildChecksumColumn(),
+            )
         }
+
+        this.migrationsTableColumnsEnsured = true
     }
 }

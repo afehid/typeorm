@@ -1,5 +1,5 @@
-import type { MigrationInterface, QueryRunner } from "../../../../src"
-import { Table } from "../../../../src"
+import type { MigrationInterface, QueryRunner } from "../../../../../src"
+import { Table } from "../../../../../src"
 
 export class CreatePost1730000000001 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {

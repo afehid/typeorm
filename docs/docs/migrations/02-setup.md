@@ -12,6 +12,7 @@ export default new DataSource({
     migrationsRun: false,
     migrationsTableName: "migrations",
     migrationsTransactionMode: "all",
+    migrationsChecksumCheck: false,
 
     // other options...
 })
@@ -69,3 +70,13 @@ Controls transaction mode when running migrations. Possible options are:
 - `all` (_default_) - wraps migrations run into a single transaction
 - `none`
 - `each`
+
+### `migrationsChecksumCheck`
+
+When enabled, TypeORM verifies that each already-executed migration still matches the checksum stored in the migrations table (computed from the migration name and its `up` / `down` source). If a stored checksum no longer matches, a `MigrationChecksumMismatchError` is thrown before further migrations run.
+
+Default: `false` (checksums are still stored when migrations execute; verification is opt-in).
+
+```ts
+migrationsChecksumCheck: true
+```

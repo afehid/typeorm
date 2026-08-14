@@ -1,16 +1,16 @@
 import { expect } from "chai"
 import "reflect-metadata"
 
-import type { DataSource } from "../../../src"
-import { Table } from "../../../src"
-import { MigrationChecksumMismatchError } from "../../../src/error/MigrationChecksumMismatchError"
+import type { DataSource } from "../../../../src"
+import { Table } from "../../../../src"
+import { MigrationChecksumMismatchError } from "../../../../src/error/MigrationChecksumMismatchError"
 import {
     closeTestingConnections,
     createTestingConnections,
     reloadTestingDatabases,
-} from "../../utils/test-utils"
+} from "../../../utils/test-utils"
 
-describe("github issues > #3375 add metadata to migrations table", () => {
+describe("migrations > checksum and executedAt metadata", () => {
     let dataSources: DataSource[]
 
     before(async () => {
