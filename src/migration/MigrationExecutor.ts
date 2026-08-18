@@ -536,6 +536,9 @@ export class MigrationExecutor {
         if (this.dataSource.driver.options.type === "mongodb") {
             return
         }
+        if (this.migrationsTableColumnsEnsured) {
+            return
+        }
         const tableExist = await queryRunner.hasTable(this.migrationsTable) // todo: table name should be configurable
         if (!tableExist) {
             await queryRunner.createTable(
@@ -898,7 +901,9 @@ export class MigrationExecutor {
         execute: boolean,
     ): Promise<string[]> {
         if (this.dataSource.driver.options.type === "mongodb") {
-            await run()
+            if (execute) {
+                await run()
+            }
             return []
         }
 
@@ -958,6 +963,10 @@ export class MigrationExecutor {
         executedMigrations: Migration[],
         sourceMigrations: Migration[],
     ) {
+        if (this.dataSource.driver.options.type === "mongodb") {
+            return
+        }
+
         const sourceMigrationsByName = new Map(
             sourceMigrations.map((migration) => [migration.name, migration]),
         )
