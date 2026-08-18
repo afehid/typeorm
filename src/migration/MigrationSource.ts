@@ -1,40 +1,47 @@
 import { PlatformTools } from "../platform/PlatformTools"
 
 /**
- * Builds a SHA-1 checksum for a single migration from its name and the
- * normalized source of its `up` / `down` methods.
+ * Builds a SHA-256 checksum of generated SQL (Flyway/Liquibase-style),
+ * not of JavaScript `Function.toString()` which varies across .ts/.js and bundlers.
  *
- * This is intentionally scoped to the migration instance (not the whole file)
- * so that editing another class in the same file cannot invalidate an
- * already-executed migration's checksum.
- *
- * Checksums are only comparable when the same artifact form is used (.ts vs
- * compiled .js produce different Function.toString() output). Keep
- * `migrationsChecksumCheck` environments consistent (typically always `.js`).
+ * Line endings are normalized to `\n` so Windows and Unix produce the same hash.
  *
  * @param name
- * @param instance
- * @param instance.up
- * @param instance.down
+ * @param sqlStatements
  */
 export function computeMigrationChecksum(
     name: string,
-    instance?: {
-        up?: (...args: any[]) => any
-        down?: (...args: any[]) => any
-    },
+    sqlStatements: string[],
 ): string {
-    const up = normalizeFunctionSource(instance?.up?.toString() ?? "")
-    const down = normalizeFunctionSource(instance?.down?.toString() ?? "")
-    return PlatformTools.sha1(`${name}\0${up}\0${down}`)
+    const normalizedSql = sqlStatements
+        .map((sql) => normalizeSql(sql))
+        .filter((sql) => sql.length > 0)
+        .join("\n")
+    return PlatformTools.sha256(`${name}\0${normalizedSql}`)
 }
 
 /**
- * Collapses insignificant whitespace so minor formatter differences are less
- * likely to change Function.toString()-based checksums.
+ * Normalizes generated SQL for a stable, cross-platform checksum.
  *
- * @param source
+ * @param sql
  */
-function normalizeFunctionSource(source: string): string {
-    return source.replaceAll("\r\n", "\n").replaceAll(/\s+/g, " ").trim()
+export function normalizeSql(sql: string): string {
+    return sql.replaceAll("\r\n", "\n").trim()
+}
+
+/**
+ * Serializes a SQL string plus its bound parameters for checksum input.
+ *
+ * @param query
+ * @param parameters
+ */
+export function formatSqlForChecksum(
+    query: string,
+    parameters?: unknown,
+): string {
+    const sql = normalizeSql(query)
+    if (parameters === undefined || parameters === null) {
+        return sql
+    }
+    return `${sql}\0${JSON.stringify(parameters)}`
 }

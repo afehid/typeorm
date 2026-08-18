@@ -12,7 +12,11 @@ import {
     TypeORMError,
 } from "../error"
 import { InstanceChecker } from "../util/InstanceChecker"
-import { computeMigrationChecksum } from "./MigrationSource"
+import {
+    computeMigrationChecksum,
+    formatSqlForChecksum,
+} from "./MigrationSource"
+import { QueryResult } from "../query-runner/QueryResult"
 
 /**
  * Executes migrations: runs pending and reverts previously executed migrations.
@@ -90,7 +94,17 @@ export class MigrationExecutor {
             }
 
             await queryRunner.beforeMigration()
-            await (migration.instance as any).up(queryRunner)
+            if (migration.instance) {
+                const captured = await this.captureMigrationSql(
+                    queryRunner,
+                    () => migration.instance!.up(queryRunner),
+                    true,
+                )
+                migration.checksum = computeMigrationChecksum(
+                    migration.name,
+                    captured,
+                )
+            }
             await queryRunner.afterMigration()
             await this.insertExecutedMigration(queryRunner, migration)
 
@@ -225,7 +239,8 @@ export class MigrationExecutor {
         const allMigrations = this.getMigrations()
 
         if (this.dataSource.options.migrationsChecksumCheck) {
-            this.verifyExecutedMigrationChecksums(
+            await this.verifyExecutedMigrationChecksums(
+                queryRunner,
                 executedMigrations,
                 allMigrations,
             )
@@ -352,8 +367,7 @@ export class MigrationExecutor {
                     transactionStartedByUs = true
                 }
 
-                await migration
-                    .instance!.up(queryRunner)
+                await this.captureAndRunPendingMigration(queryRunner, migration)
                     .catch((error) => {
                         // informative log about migration failure
                         this.dataSource.logger.logMigration(
@@ -572,7 +586,7 @@ export class MigrationExecutor {
                                 type: this.dataSource.driver.mappedDataTypes
                                     .migrationName,
                             }),
-                            length: "40",
+                            length: "64",
                             isNullable: true,
                         },
                         ...this.getMigrationsExtraColumns().map((column) => ({
@@ -741,9 +755,10 @@ export class MigrationExecutor {
                         .migrationTimestamp,
                 }),
             )
-            const checksum = migration.instance
-                ? this.computeMigrationChecksum(migration)
-                : null
+            const checksum = await this.resolveMigrationChecksum(
+                queryRunner,
+                migration,
+            )
             values["checksum"] = new MssqlParameter(
                 checksum,
                 this.dataSource.driver.normalizeType({
@@ -754,9 +769,10 @@ export class MigrationExecutor {
             values["timestamp"] = migration.timestamp
             values["name"] = migration.name
             values["executedAt"] = Date.now()
-            values["checksum"] = migration.instance
-                ? this.computeMigrationChecksum(migration)
-                : null
+            values["checksum"] = await this.resolveMigrationChecksum(
+                queryRunner,
+                migration,
+            )
         }
 
         for (const column of this.getMigrationsExtraColumns()) {
@@ -855,11 +871,90 @@ export class MigrationExecutor {
         }
     }
 
-    protected computeMigrationChecksum(migration: Migration): string {
-        return computeMigrationChecksum(migration.name, migration.instance)
+    protected async captureAndRunPendingMigration(
+        queryRunner: QueryRunner,
+        migration: Migration,
+    ): Promise<void> {
+        const captured = await this.captureMigrationSql(
+            queryRunner,
+            () => migration.instance!.up(queryRunner),
+            true,
+        )
+        migration.checksum = computeMigrationChecksum(migration.name, captured)
     }
 
-    protected verifyExecutedMigrationChecksums(
+    /**
+     * Records SQL sent through `queryRunner.query` while `up()` runs.
+     * When `execute` is false, queries are recorded but not sent to the database
+     * so already-applied migrations can be checksummed without applying again.
+     *
+     * @param queryRunner
+     * @param run
+     * @param execute
+     */
+    protected async captureMigrationSql(
+        queryRunner: QueryRunner,
+        run: () => Promise<void>,
+        execute: boolean,
+    ): Promise<string[]> {
+        if (this.dataSource.driver.options.type === "mongodb") {
+            await run()
+            return []
+        }
+
+        const statements: string[] = []
+        const originalQuery = queryRunner.query.bind(queryRunner)
+        queryRunner.query = ((
+            query: string,
+            parameters?: any,
+            useStructuredResult?: boolean,
+        ) => {
+            statements.push(formatSqlForChecksum(query, parameters))
+            if (execute) {
+                if (useStructuredResult === true) {
+                    return originalQuery(query, parameters, true)
+                }
+                return originalQuery(query, parameters)
+            }
+            if (useStructuredResult) {
+                const result = new QueryResult()
+                result.records = []
+                result.raw = []
+                return Promise.resolve(result)
+            }
+            return Promise.resolve([])
+        }) as QueryRunner["query"]
+
+        try {
+            await run()
+        } finally {
+            queryRunner.query = originalQuery
+        }
+
+        return statements
+    }
+
+    protected async resolveMigrationChecksum(
+        queryRunner: QueryRunner,
+        migration: Migration,
+    ): Promise<string | null> {
+        if (!migration.instance) {
+            return null
+        }
+        if (migration.checksum) {
+            return migration.checksum
+        }
+
+        const captured = await this.captureMigrationSql(
+            queryRunner,
+            () => migration.instance!.up(queryRunner),
+            false,
+        )
+        return computeMigrationChecksum(migration.name, captured)
+    }
+
+    protected async verifyExecutedMigrationChecksums(
+        queryRunner: QueryRunner,
         executedMigrations: Migration[],
         sourceMigrations: Migration[],
     ) {
@@ -875,17 +970,31 @@ export class MigrationExecutor {
             const sourceMigration = sourceMigrationsByName.get(
                 executedMigration.name,
             )
-            if (!sourceMigration) {
+            if (!sourceMigration?.instance) {
                 continue
             }
 
-            const currentChecksum =
-                this.computeMigrationChecksum(sourceMigration)
+            const capturedSql = await this.captureMigrationSql(
+                queryRunner,
+                () => sourceMigration.instance!.up(queryRunner),
+                false,
+            )
+            const currentSql = capturedSql
+                .filter((sql) => sql.length > 0)
+                .join("\n")
+            const currentChecksum = computeMigrationChecksum(
+                sourceMigration.name,
+                capturedSql,
+            )
             if (currentChecksum !== executedMigration.checksum) {
+                this.dataSource.logger.logMigration(
+                    `Checksum mismatch for "${executedMigration.name}". SQL used for current checksum:\n${currentSql}`,
+                )
                 throw new MigrationChecksumMismatchError(
                     executedMigration.name,
                     executedMigration.checksum,
                     currentChecksum,
+                    currentSql,
                 )
             }
         }
@@ -907,7 +1016,7 @@ export class MigrationExecutor {
             type: this.dataSource.driver.normalizeType({
                 type: this.dataSource.driver.mappedDataTypes.migrationName,
             }),
-            length: "40",
+            length: "64",
             isNullable: true,
         })
     }
