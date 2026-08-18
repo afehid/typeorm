@@ -540,9 +540,8 @@ export class MigrationExecutor {
         if (this.dataSource.driver.options.type === "mongodb") {
             return
         }
-        if (this.migrationsTableColumnsEnsured) {
-            return
-        }
+        // Always verify the table exists (it may be dropped between calls on a
+        // long-lived executor); the ensured flag only skips the column checks.
         const tableExist = await queryRunner.hasTable(this.migrationsTable) // todo: table name should be configurable
         if (!tableExist) {
             await queryRunner.createTable(
@@ -1063,10 +1062,25 @@ export class MigrationExecutor {
             "executedat",
             "checksum",
         ])
-        return (this.dataSource.options.migrationsExtraColumns ?? []).filter(
-            (column) =>
-                !!column.name && !reserved.has(column.name.toLowerCase()),
-        )
+        const seenNames = new Set<string>()
+        const columns: {
+            name: string
+            type: string
+            length?: string
+            isNullable?: boolean
+        }[] = []
+        for (const column of this.dataSource.options.migrationsExtraColumns ??
+            []) {
+            const name = column.name?.trim()
+            if (!name) continue
+            const lowerName = name.toLowerCase()
+            // skip reserved names and duplicates (case-insensitive) so table
+            // creation does not fail with duplicate-column errors
+            if (reserved.has(lowerName) || seenNames.has(lowerName)) continue
+            seenNames.add(lowerName)
+            columns.push({ ...column, name })
+        }
+        return columns
     }
 
     protected async ensureMigrationsTableColumns(
