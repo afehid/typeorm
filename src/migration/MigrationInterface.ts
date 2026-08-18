@@ -21,7 +21,7 @@ export interface MigrationInterface {
      * Optional extra values written to columns declared in
      * `migrationsExtraColumns` when this migration is recorded as executed.
      */
-    migrationMetadata?: Record<string, any>
+    migrationMetadata?: Record<string, string | number | boolean | null>
 
     /**
      * Run the migrations.

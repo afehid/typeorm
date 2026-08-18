@@ -17,7 +17,7 @@ export class MigrationChecksumMismatchError extends TypeORMError {
         currentSql: string,
     ) {
         super(
-            `Migration "${migrationName}" checksum mismatch (stored: ${storedChecksum}, current: ${currentChecksum}). This can mean the generated SQL changed, or that SQL was produced differently across environments. Compare the SQL used for the current checksum:\n${currentSql}\nSet migrationsChecksumCheck to false to skip this check.`,
+            `Migration "${migrationName}" checksum mismatch (stored: ${storedChecksum}, current: ${currentChecksum}). This can mean the generated SQL changed, or that SQL was produced differently across environments. Compare the SQL used for the current checksum (bound parameters omitted):\n${currentSql}\nSet migrationsChecksumCheck to false to skip this check.`,
         )
         this.migrationName = migrationName
         this.storedChecksum = storedChecksum

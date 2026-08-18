@@ -1,8 +1,8 @@
 import { PlatformTools } from "../platform/PlatformTools"
 
 /**
- * Builds a SHA-256 checksum of generated SQL (Flyway/Liquibase-style),
- * not of JavaScript `Function.toString()` which varies across .ts/.js and bundlers.
+ * Builds a SHA-256 checksum from the migration name plus generated SQL
+ * (Flyway/Liquibase-style), not JavaScript `Function.toString()`.
  *
  * Line endings are normalized to `\n` so Windows and Unix produce the same hash.
  *
@@ -56,4 +56,18 @@ function stringifyChecksumParameters(parameters: unknown): string {
     } catch {
         return Object.prototype.toString.call(parameters)
     }
+}
+
+/**
+ * SQL text for logs/errors, with bound parameters stripped so checksum
+ * diagnostics do not leak query values.
+ *
+ * @param sqlStatements
+ */
+export function sqlStatementsForDisplay(sqlStatements: string[]): string {
+    return sqlStatements
+        .map((statement) => statement.split("\0")[0] ?? "")
+        .map((sql) => normalizeSql(sql))
+        .filter((sql) => sql.length > 0)
+        .join("\n")
 }
