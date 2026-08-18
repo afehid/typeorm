@@ -43,5 +43,17 @@ export function formatSqlForChecksum(
     if (parameters === undefined || parameters === null) {
         return sql
     }
-    return `${sql}\0${JSON.stringify(parameters)}`
+    return `${sql}\0${stringifyChecksumParameters(parameters)}`
+}
+
+/**
+ *
+ * @param parameters
+ */
+function stringifyChecksumParameters(parameters: unknown): string {
+    try {
+        return JSON.stringify(parameters)
+    } catch {
+        return Object.prototype.toString.call(parameters)
+    }
 }
