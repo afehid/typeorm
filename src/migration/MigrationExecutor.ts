@@ -1090,30 +1090,26 @@ export class MigrationExecutor {
             return
         }
 
-        if (
-            !(await queryRunner.hasColumn(this.migrationsTable, "executedAt"))
-        ) {
-            await queryRunner.addColumn(
-                this.migrationsTable,
-                this.buildExecutedAtColumn(),
-            )
-        }
-        if (!(await queryRunner.hasColumn(this.migrationsTable, "checksum"))) {
-            await queryRunner.addColumn(
-                this.migrationsTable,
-                this.buildChecksumColumn(),
-            )
+        // Read the table once and diff in memory instead of issuing one
+        // hasColumn round-trip per column on every startup.
+        const table = await queryRunner.getTable(this.migrationsTable)
+        if (!table) {
+            return
         }
 
+        const existingColumnNames = new Set(
+            table.columns.map((column) => column.name.toLowerCase()),
+        )
+        const missingColumns: TableColumn[] = []
+        if (!existingColumnNames.has("executedat")) {
+            missingColumns.push(this.buildExecutedAtColumn())
+        }
+        if (!existingColumnNames.has("checksum")) {
+            missingColumns.push(this.buildChecksumColumn())
+        }
         for (const column of this.getMigrationsExtraColumns()) {
-            if (
-                !(await queryRunner.hasColumn(
-                    this.migrationsTable,
-                    column.name,
-                ))
-            ) {
-                await queryRunner.addColumn(
-                    this.migrationsTable,
+            if (!existingColumnNames.has(column.name.toLowerCase())) {
+                missingColumns.push(
                     new TableColumn({
                         name: column.name,
                         type: column.type,
@@ -1122,6 +1118,10 @@ export class MigrationExecutor {
                     }),
                 )
             }
+        }
+
+        if (missingColumns.length > 0) {
+            await queryRunner.addColumns(this.migrationsTable, missingColumns)
         }
 
         this.migrationsTableColumnsEnsured = true

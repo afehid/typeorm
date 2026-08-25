@@ -69,7 +69,7 @@ Different RDBMS-es have their own specific options.
 
 - `migrationsTransactionMode` - Controls transaction mode when running [migrations](../migrations/01-why.md).
 
-- `migrationsChecksumCheck` - When `true`, compares each executed migration's stored SHA-256 checksum (migration name + generated `up()` SQL) against a dry-run of the current `up()` SQL before running migrations. Throws if they differ. Default: `false`.
+- `migrationsChecksumCheck` - When `true`, compares each executed migration's stored SHA-256 checksum (migration name + generated `up()` SQL, including bound parameters of raw queries) against a dry-run of the current `up()` SQL before running migrations. Throws if they differ. Default: `false`.
 
 - `migrationsExtraColumns` - Extra nullable columns to create on the migrations table for custom metadata. Provide values via `MigrationInterface.migrationMetadata`.
 

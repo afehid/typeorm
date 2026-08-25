@@ -16,7 +16,13 @@ describe("migrations > checksum and executedAt metadata", () => {
 
     before(async () => {
         dataSources = await createTestingConnections({
-            enabledDrivers: ["better-sqlite3"],
+            enabledDrivers: [
+                "better-sqlite3",
+                "postgres",
+                "mysql",
+                "mariadb",
+                "mssql",
+            ],
             dropSchema: true,
             schemaCreate: false,
             migrations: [__dirname + "/migration/*{.ts,.js}"],
