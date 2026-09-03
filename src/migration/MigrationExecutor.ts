@@ -746,20 +746,20 @@ export class MigrationExecutor {
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }),
+                }) as any,
             )
             values["name"] = new MssqlParameter(
                 migration.name,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }),
+                }) as any,
             )
             values["executedAt"] = new MssqlParameter(
                 Date.now(),
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }),
+                }) as any,
             )
             const checksum = await this.resolveMigrationChecksum(
                 queryRunner,
@@ -769,7 +769,7 @@ export class MigrationExecutor {
                 checksum,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }),
+                }) as any,
             )
         } else {
             values["timestamp"] = migration.timestamp
@@ -791,8 +791,12 @@ export class MigrationExecutor {
                         : undefined
                 values[column.name] =
                     length != null && !Number.isNaN(length)
-                        ? new MssqlParameter(value, column.type, length)
-                        : new MssqlParameter(value, column.type)
+                        ? new MssqlParameter(
+                              value,
+                              column.type as any,
+                              length as any,
+                          )
+                        : new MssqlParameter(value, column.type as any)
             } else {
                 values[column.name] = value
             }
@@ -831,13 +835,13 @@ export class MigrationExecutor {
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }),
+                }) as any,
             )
             conditions["name"] = new MssqlParameter(
                 migration.name,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }),
+                }) as any,
             )
         } else {
             conditions["timestamp"] = migration.timestamp

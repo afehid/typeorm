@@ -50,10 +50,6 @@ export class MssqlParameter {
     constructor(value: any, type: "geometry")
     constructor(value: any, type: "rowversion")
     constructor(value: any, type: "vector", length: number)
-    /**
-     * Accepts a driver-normalized type string (e.g. from normalizeType()).
-     */
-    constructor(value: any, type: string, ...params: number[])
     constructor(
         public value: any,
         public type: string,
