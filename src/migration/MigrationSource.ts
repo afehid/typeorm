@@ -47,6 +47,8 @@ export function formatSqlForChecksum(
 }
 
 /**
+ * Serializes bound query parameters for checksum input; falls back when
+ * JSON.stringify fails on non-serializable values.
  *
  * @param parameters
  */
