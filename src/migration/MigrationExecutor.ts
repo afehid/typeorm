@@ -4,7 +4,10 @@ import type { DataSource } from "../data-source/DataSource"
 import { Migration } from "./Migration"
 import type { ObjectLiteral } from "../common/ObjectLiteral"
 import type { QueryRunner } from "../query-runner/QueryRunner"
-import { MssqlParameter } from "../driver/sqlserver/MssqlParameter"
+import {
+    isMssqlParameterType,
+    MssqlParameter,
+} from "../driver/sqlserver/MssqlParameter"
 import type { MongoQueryRunner } from "../driver/mongodb/MongoQueryRunner"
 import {
     ForbiddenTransactionModeOverrideError,
@@ -243,11 +246,18 @@ export class MigrationExecutor {
         const allMigrations = this.getMigrations()
 
         if (this.dataSource.options.migrationsChecksumCheck) {
-            await this.verifyExecutedMigrationChecksums(
-                queryRunner,
-                executedMigrations,
-                allMigrations,
-            )
+            try {
+                await this.verifyExecutedMigrationChecksums(
+                    queryRunner,
+                    executedMigrations,
+                    allMigrations,
+                )
+            } catch (error) {
+                // release the query runner we created so a checksum failure
+                // does not hold a pooled connection
+                if (!this.queryRunner) await queryRunner.release()
+                throw error
+            }
         }
 
         // variable to store all migrations we did successfully
@@ -741,36 +751,26 @@ export class MigrationExecutor {
 
         const values: ObjectLiteral = {}
         if (this.dataSource.driver.options.type === "mssql") {
-            values["timestamp"] = new MssqlParameter(
+            const timestampType = this.dataSource.driver.normalizeType({
+                type: this.dataSource.driver.mappedDataTypes.migrationTimestamp,
+            })
+            const nameType = this.dataSource.driver.normalizeType({
+                type: this.dataSource.driver.mappedDataTypes.migrationName,
+            })
+            values["timestamp"] = this.createMssqlParameter(
                 migration.timestamp,
-                this.dataSource.driver.normalizeType({
-                    type: this.dataSource.driver.mappedDataTypes
-                        .migrationTimestamp,
-                }) as any,
+                timestampType,
             )
-            values["name"] = new MssqlParameter(
-                migration.name,
-                this.dataSource.driver.normalizeType({
-                    type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
-            )
-            values["executedAt"] = new MssqlParameter(
+            values["name"] = this.createMssqlParameter(migration.name, nameType)
+            values["executedAt"] = this.createMssqlParameter(
                 Date.now(),
-                this.dataSource.driver.normalizeType({
-                    type: this.dataSource.driver.mappedDataTypes
-                        .migrationTimestamp,
-                }) as any,
+                timestampType,
             )
             const checksum = await this.resolveMigrationChecksum(
                 queryRunner,
                 migration,
             )
-            values["checksum"] = new MssqlParameter(
-                checksum,
-                this.dataSource.driver.normalizeType({
-                    type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
-            )
+            values["checksum"] = this.createMssqlParameter(checksum, nameType)
         } else {
             values["timestamp"] = migration.timestamp
             values["name"] = migration.name
@@ -791,12 +791,8 @@ export class MigrationExecutor {
                         : undefined
                 values[column.name] =
                     length != null && !Number.isNaN(length)
-                        ? new MssqlParameter(
-                              value,
-                              column.type as any,
-                              length as any,
-                          )
-                        : new MssqlParameter(value, column.type as any)
+                        ? this.createMssqlParameter(value, column.type, length)
+                        : this.createMssqlParameter(value, column.type)
             } else {
                 values[column.name] = value
             }
@@ -830,18 +826,18 @@ export class MigrationExecutor {
     ): Promise<void> {
         const conditions: ObjectLiteral = {}
         if (this.dataSource.driver.options.type === "mssql") {
-            conditions["timestamp"] = new MssqlParameter(
+            conditions["timestamp"] = this.createMssqlParameter(
                 migration.timestamp,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes
                         .migrationTimestamp,
-                }) as any,
+                }),
             )
-            conditions["name"] = new MssqlParameter(
+            conditions["name"] = this.createMssqlParameter(
                 migration.name,
                 this.dataSource.driver.normalizeType({
                     type: this.dataSource.driver.mappedDataTypes.migrationName,
-                }) as any,
+                }),
             )
         } else {
             conditions["timestamp"] = migration.timestamp
@@ -1012,6 +1008,27 @@ export class MigrationExecutor {
                 )
             }
         }
+    }
+
+    /**
+     * Wraps a value for SQL Server using a type name resolved at runtime
+     * (driver-normalized or user-configured), rejecting unsupported names.
+     *
+     * @param value
+     * @param type
+     * @param params optional length / precision / scale
+     */
+    protected createMssqlParameter(
+        value: unknown,
+        type: string,
+        ...params: number[]
+    ): MssqlParameter {
+        if (!isMssqlParameterType(type)) {
+            throw new TypeORMError(
+                `Unsupported SQL Server parameter type "${type}" for the migrations table.`,
+            )
+        }
+        return new MssqlParameter(value, type, ...params)
     }
 
     protected buildExecutedAtColumn(): TableColumn {
